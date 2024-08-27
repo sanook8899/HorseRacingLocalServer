@@ -13,16 +13,10 @@ var awardBase = 0;
 var gameType = 2;
 var roomId = 0;
 var records = [];
-var multiplierValue = [49, 14, 5.3, 2.1, 0.5, 0.2, 0.0, 0.2, 0.5, 2.1, 5.3, 14, 49];
-/*var probabilities = [0.00129327, 0.00129327, 0.02884998, 0.06565858, 0.14723438,
-    0.15718265, 0.19697573, 0.15718265, 0.14723438, 0.06565858,
-    0.02884998, 0.00129327, 0.00129327]; //95.46%
-*/
-var probabilities = [0.0005, 0.0005, 0.015, 0.0325, 0.075,
-    0.08, 0.593, 0.08, 0.075, 0.0325,
-    0.015, 0.0005, 0.0005]; //88.15%
+var multiplierValue = [0,0,0,0,0,0];
+var result = [0, 0, 0];
 
-
+var count = 0;
 
 function generateRandomString(length) {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -249,21 +243,41 @@ function roomListRequest() {
     return response;
 }
 
-function setBetRequest(bet) {
+function setBetRequest(bet, betArray) {
     awardBase = bet;
     gameCode = "#" + generateRandomString(10);
     balance -= awardBase;
 
-    var cumulativeProbabilities = probabilities.reduce((acc, curr, i) => {
-        if (i === 0) acc.push(curr);
-        else acc.push(acc[i - 1] + curr);
-        return acc;
-    }, []);
+    result = [0, 0, 0];
+    multiplierValue = [0, 0, 0, 0, 0, 0];
 
-    var randomNumber = Math.random();
-    var selectedMultiplierIndex = cumulativeProbabilities.findIndex(cumProb => randomNumber < cumProb);
+    for (let i = 0; i < result.length; i++) {
+        result[i] = Math.floor(Math.random() * 6) + 1;
+    }
 
-    let winAmount = multiplierValue[selectedMultiplierIndex - 1] * bet;
+    // Count the frequency of each number in the result array
+    var counts = {};
+    result.forEach(function (x) {
+        counts[x] = (counts[x] || 0) + 1;
+    });
+
+    // Update the multiplierValue array based on the counts
+    for (let i = 1; i <= 6; i++) {
+        if (counts[i] === 3) {
+            multiplierValue[i - 1] = 9;  // Set multiplier to 9 if a number appears three times
+        } else if (counts[i] === 2) {
+            multiplierValue[i - 1] = 2;  // Set multiplier to 2 if a number appears twice
+        } else if (counts[i] === 1) {
+            multiplierValue[i - 1] = 1;  // Set multiplier to 1 if a number appears once
+        }
+    }
+
+    let winAmount = 0;
+
+
+    for (let i = 0; i < multiplierValue.length; i++) {
+        winAmount += multiplierValue[i] * betArray[i];
+    }
 
     let response = {
         errCode: 0,
@@ -271,14 +285,14 @@ function setBetRequest(bet) {
         vals: {},
     }
 
-    betInfo = {
+    betInfo = [{
         bet: awardBase,
         balance: balance,
-        index: selectedMultiplierIndex,
+        index: result,
         winAmount: winAmount,
         roundId: gameCode,
         finalBalance: balance + winAmount,
-    }
+    }]
     response.vals = {
         type: 100000,
         id: 3,
@@ -354,76 +368,11 @@ server.on("connection", (ws) => {
                 // set bet request
                 if (jsonContent.data[0].subData[0].opCode == "SetBet") {
                     let bet = jsonContent.data[0].subData[0].message.bet;
-                    let response = setBetRequest(bet);
+                    let betArray = jsonContent.data[0].subData[0].message.betArray;
+                    let response = setBetRequest(bet, betArray);
                     ws.send(JSON.stringify(response));
                 }
             }
         }
     })
-
-    function randomBetResult(bet) {
-        var multiplierValue = [49, 14, 5.3, 2.1, 0.5, 0.2, 0.0, 0.2, 0.5, 2.1, 5.3, 14, 49];
-        // Probabilities corresponding to each multiplier
-        var probabilities = [0.0035, 0.0035, 0.0355, 0.0709, 0.1418, 0.156, 0.1773, 0.156, 0.1418, 0.0709, 0.0355, 0.0035, 0.0035];
-
-        // Calculate cumulative probabilities for interval mapping
-        var cumulativeProbabilities = probabilities.reduce((acc, curr, i) => {
-            if (i === 0) acc.push(curr);
-            else acc.push(acc[i - 1] + curr);
-            return acc;
-        }, []);
-
-        // Generate a random number between 0 and 1
-        var randomNumber = Math.random();
-
-        // Determine which interval the random number falls into
-        var selectedMultiplierIndex = cumulativeProbabilities.findIndex(cumProb => randomNumber < cumProb);
-
-        // Calculate the win amount based on the selected multiplier
-        var winAmount = bet * multiplierValue[selectedMultiplierIndex];
-
-        return {
-            selectedMultiplier: multiplierValue[selectedMultiplierIndex],
-            winAmount: winAmount
-        };
-    }
-
-    function adjustProbabilities(currentRTP, targetRTP, probabilities) {
-        // Simplified adjustment logic: if the actual RTP is higher than the target, decrease the probability of high multipliers, and vice versa
-        if (currentRTP > targetRTP) {
-            // Decrease the probability of the highest multiplier slightly
-            probabilities[0] -= 0.001; // Example adjustment
-            probabilities[probabilities.length - 1] -= 0.001;
-        } else {
-            // Increase the probability of the highest multiplier slightly
-            probabilities[0] += 0.001;
-            probabilities[probabilities.length - 1] += 0.001;
-        }
-
-        // Ensure the probabilities still sum to 1 after adjustment
-        let sum = probabilities.reduce((acc, val) => acc + val, 0);
-        probabilities = probabilities.map(prob => prob / sum);
-
-        return probabilities;
-    }
-
-
-    function simulateBetWithDynamicRTP(bet, targetRTP) {
-        // Your existing logic to select a multiplier based on current probabilities
-
-        // Update total bets and total payouts
-        totalBets += bet;
-        // Assuming result is the outcome of the bet based on the current logic
-        let result = randomBetResult(bet); // This function needs to be defined as before, using current probabilities
-        totalPayouts += result.winAmount;
-
-        // Calculate current RTP
-        let currentRTP = totalPayouts / totalBets;
-
-        // Adjust probabilities based on current RTP vs. target RTP
-        let adjustedProbabilities = adjustProbabilities(currentRTP, targetRTP, probabilities); // probabilities should be defined globally or passed appropriately
-
-        // Use the adjusted probabilities for future bets
-        // This step would involve integrating the adjusted probabilities back into your bet selection logic
-    }
 });
