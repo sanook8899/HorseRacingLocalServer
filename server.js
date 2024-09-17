@@ -13,8 +13,17 @@ var awardBase = 0;
 var gameType = 2;
 var roomId = 0;
 var records = [];
-var multiplierValue = [0,0,0,0,0,0];
-var result = [0, 0, 0];
+var oddsValue = [2, 3, 4, 9, 49, 97];
+var indexArray = [];
+var index = 0;
+
+var round = 0; // 0 = reset, 1 = betting, 2 = start, 3 = game over
+var roundDelayCount = [3, 10, 13, 5];
+var roundCount = 0;
+
+var currentTotalBetValue = [0, 0, 0, 0, 0, 0];
+var currentPlayerBetValue = [0, 0, 0, 0, 0, 0];
+var currentPlayerTotalBetValue = 0;
 
 var count = 0;
 
@@ -198,10 +207,16 @@ function roomInfoRequest() {
     }
 
     roomInfo = {
-        betOdds: multiplierValue,
+        betOdds: oddsValue,
         minBet: 1,
         maxBet: 1024,
         recordList: records,
+        round: round,
+        roundCount: roundDelayCount[round] - roundCount,
+        maxRoundCount: roundDelayCount[round],
+        indexArray: indexArray,
+        index:index,
+
     }
 
     response.vals = {
@@ -243,40 +258,15 @@ function roomListRequest() {
     return response;
 }
 
-function setBetRequest(bet, betArray) {
-    awardBase = bet;
-    gameCode = "#" + generateRandomString(10);
-    balance -= awardBase;
+function resetResponse() {
 
-    result = [0, 0, 0];
-    multiplierValue = [0, 0, 0, 0, 0, 0];
+    const defaultOdds = [2, 3, 4, 9, 49, 97];
+    oddsValue = [...defaultOdds]; // Create a copy of the defaultOdds array
 
-    for (let i = 0; i < result.length; i++) {
-        result[i] = Math.floor(Math.random() * 6) + 1;
-    }
-
-    // Count the frequency of each number in the result array
-    var counts = {};
-    result.forEach(function (x) {
-        counts[x] = (counts[x] || 0) + 1;
-    });
-
-    // Update the multiplierValue array based on the counts
-    for (let i = 1; i <= 6; i++) {
-        if (counts[i] === 3) {
-            multiplierValue[i - 1] = 9;  // Set multiplier to 9 if a number appears three times
-        } else if (counts[i] === 2) {
-            multiplierValue[i - 1] = 2;  // Set multiplier to 2 if a number appears twice
-        } else if (counts[i] === 1) {
-            multiplierValue[i - 1] = 1;  // Set multiplier to 1 if a number appears once
-        }
-    }
-
-    let winAmount = 0;
-
-
-    for (let i = 0; i < multiplierValue.length; i++) {
-        winAmount += multiplierValue[i] * betArray[i];
+    // Fisher-Yates shuffle algorithm to randomize the array
+    for (let i = oddsValue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1)); // Generate a random index from 0 to i
+        [oddsValue[i], oddsValue[j]] = [oddsValue[j], oddsValue[i]]; // Swap elements
     }
 
     let response = {
@@ -285,14 +275,131 @@ function setBetRequest(bet, betArray) {
         vals: {},
     }
 
-    betInfo = [{
-        bet: awardBase,
-        balance: balance,
-        index: result,
-        winAmount: winAmount,
+    response.vals = {
+        type: 100000,
+        id: 3,
+        data: {
+            subType: 100071,
+            subData: [{
+                errCode: 0,
+                opCode: "Reset",
+                roundCount: roundDelayCount[0] - roundCount,
+                maxRoundCount: roundDelayCount[0],
+                odds: oddsValue,
+                records: records,
+            }]
+        }
+    }
+
+    return response;
+}
+
+function startBetResponse() {
+    let response = {
+        errCode: 0,
+        errMsg: "success",
+        vals: {},
+    }
+
+    response.vals = {
+        type: 100000,
+        id: 3,
+        data: {
+            subType: 100071,
+            subData: [{
+                errCode: 0,
+                opCode: "StartBet",
+                roundCount: roundDelayCount[1] - roundCount,
+                maxRoundCount: roundDelayCount[1],
+                odds: oddsValue,
+            }]
+        }
+    }
+
+    return response;
+}
+
+function resultResponse() {
+    const numbers = [1, 2, 3, 4, 5, 6];
+
+    index = Math.floor(Math.random() * 6) + 1;
+
+    for (let i = 0; i < 12; i++) {
+        // Create a copy of the numbers array
+        const array = [...numbers];
+
+        // If it's the last iteration, set the chosen number as the first index
+        if (i === 11) {
+            // Remove the chosen number from its current position
+            const indexOfChosenNumber = array.indexOf(index);
+            array.splice(indexOfChosenNumber, 1);
+
+            // Insert the chosen number at the first index
+            array.unshift(index);
+        } else {
+            // Shuffle the array for other iterations
+            for (let j = array.length - 1; j > 0; j--) {
+                const k = Math.floor(Math.random() * (j + 1));
+                [array[j], array[k]] = [array[k], array[j]];
+            }
+        }
+
+        // Add the created array to indexArray
+        indexArray.push(array);
+    }
+
+    gameCode = "#" + generateRandomString(6);
+
+    let response = {
+        errCode: 0,
+        errMsg: "success",
+        vals: {},
+    }
+
+    betInfo = {
+        index: index,
+        indexArray: indexArray,
         roundId: gameCode,
-        finalBalance: balance + winAmount,
-    }]
+    }
+
+    response.vals = {
+        type: 100000,
+        id: 3,
+        data: {
+            subType: 100071,
+            subData: [{
+                errCode: 0,
+                opCode: "Result",
+                roundCount: roundDelayCount[1] - roundCount,
+                maxRoundCount: roundDelayCount[1],
+                betInfo: [betInfo],
+            }]
+        }
+    }
+
+    return response;
+}
+
+function setBetRequest(bet, betArray) {
+    // validate bet
+    currentPlayerBetValue = betArray;
+    currentPlayerTotalBetValue = bet;
+
+    gameCode = "#" + generateRandomString(6);
+    for (var i = 0; i < betArray.length; i++) {
+        balance -= betArray[i];
+    }
+
+    let response = {
+        errCode: 0,
+        errMsg: "success",
+        vals: {},
+    }
+
+    betInfo = {
+        betArray: currentPlayerBetValue,
+        balance: balance,
+    }
     response.vals = {
         type: 100000,
         id: 3,
@@ -301,16 +408,150 @@ function setBetRequest(bet, betArray) {
             subData: [{
                 errCode: 0,
                 opCode: "SetBet",
-                betInfo: betInfo,
+                betInfo: [betInfo],
             }]
         }
     }
 
-    balance += winAmount;
+    globalBetResponse();
 
     return response;
 }
 
+function globalBetResponse() {
+
+    let response = {
+        errCode: 0,
+        errMsg: "success",
+        vals: {},
+    }
+
+    betInfo = {
+        betArray: currentTotalBetValue,
+    }
+    response.vals = {
+        type: 100000,
+        id: 3,
+        data: {
+            subType: 100071,
+            subData: [{
+                errCode: 0,
+                opCode: "GlobalBet",
+                betInfo: [betInfo],
+            }]
+        }
+    }
+    if (wsocket && wsocket.readyState === Websocket.OPEN) {
+        wsocket.send(JSON.stringify(response));
+    }
+}
+
+function gameOverResponse() {
+    let playerWinlose = 0;
+    if (currentPlayerBetValue[index - 1] > 0) {
+        playerWinlose = currentPlayerBetValue[index - 1] * oddsValue[index - 1];
+    }
+
+    playerWinlose = Math.floor(playerWinlose);
+
+    increaseMoney = playerWinlose;
+    balance += playerWinlose;
+
+    let response = {
+        errCode: 0,
+        errMsg: "success",
+        vals: {},
+    }
+
+    betInfo = {
+        balance: balance,
+        winAmount: playerWinlose,
+        odds: oddsValue[index - 1],
+        index: index,
+    }
+    response.vals = {
+        type: 100000,
+        id: 3,
+        data: {
+            subType: 100071,
+            subData: [{
+                errCode: 0,
+                opCode: "CashOut",
+                betInfo: [betInfo],
+            }]
+        }
+    }
+
+
+    return response;
+}
+
+
+// Define your custom function that you want to run independently
+function commonIntervalInit() {
+    // Keep the server running indefinitely
+    setInterval(() => {
+        roundCount += 1;
+        if (roundCount > roundDelayCount[round]) {
+            round += 1;
+            roundCount = 1;
+            // reset
+            if (round > roundDelayCount.length - 1) {
+                round = 0;
+            }
+        }
+
+        // reset action
+        if (round == 0) {
+            if (roundCount == 1) {
+                currentPlayerBetValue = [0, 0, 0, 0, 0, 0];
+                currentTotalBetValue = [0, 0, 0, 0, 0, 0];
+                currentPlayerTotalBetValue = 0;
+                indexArray = [];
+                let response = resetResponse();
+                if (wsocket && wsocket.readyState === Websocket.OPEN) {
+                    wsocket.send(JSON.stringify(response));
+                }
+            }
+        }
+
+        // start betting action
+        if (round == 1) {
+            if (roundCount == 1) {
+                let response = startBetResponse();
+                if (wsocket && wsocket.readyState === Websocket.OPEN) {
+                    wsocket.send(JSON.stringify(response));
+                }
+            }
+        }
+
+        if (round == 2) {
+            if (roundCount == 1) {
+                let response = resultResponse();
+                if (wsocket && wsocket.readyState === Websocket.OPEN) {
+                    wsocket.send(JSON.stringify(response));
+                }
+            }
+        }
+
+        // game over action
+        if (round == 3) {
+
+            if (roundCount == 1) {
+                if (records.length > 10) {
+                    records.shift();
+                }
+
+                let response = gameOverResponse();
+                if (wsocket && wsocket.readyState === Websocket.OPEN) {
+                    wsocket.send(JSON.stringify(response));
+                }
+            }
+        }
+    }, 1000);
+}
+
+commonIntervalInit();
 
 server.on("connection", (ws) => {
     wsocket = ws;
